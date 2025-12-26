@@ -3,6 +3,7 @@ package com.romertec.fsdata.batch;
 import com.romertec.fsdata.entity.Menu;
 import com.romertec.fsdata.entity.Restaurant;
 import com.romertec.fsdata.policy.QuoteBalancedRecordSeparatorPolicy;
+import com.romertec.fsdata.policy.QuotedMultilineRecordSeparatorPolicy;
 import com.romertec.fsdata.support.CsvUtils;
 import com.romertec.fsdata.support.MenuCsvRow;
 import com.romertec.fsdata.support.PriceParser;
@@ -16,6 +17,8 @@ import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.database.BeanPropertyItemSqlParameterSourceProvider;
 import org.springframework.batch.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.item.file.FlatFileItemReader;
+import org.springframework.batch.item.file.FlatFileParseException;
+import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper;
 import org.springframework.batch.item.file.mapping.DefaultLineMapper;
 import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
@@ -82,6 +85,9 @@ public class FoodDataImportJobConfig {
                 .reader(menusReader)
                 .processor(menuProcessor)
                 .writer(menuWriter)
+                .faultTolerant()
+                .skip(FlatFileParseException.class)
+                .skipLimit(100000)
                 .build();
     }
 
@@ -137,27 +143,36 @@ public class FoodDataImportJobConfig {
     ) {
         String path = normalizeDir(baseDir) + "restaurant-menus.csv";
 
-        FlatFileItemReader<MenuCsvRow> reader = new FlatFileItemReader<>();
-        reader.setName("menusCsvReader");            // estable para restart
-        reader.setResource(new FileSystemResource(path));
-        reader.setLinesToSkip(1);
-        reader.setSaveState(true);
-        reader.setStrict(true);
-
         DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
         tokenizer.setDelimiter(",");
         tokenizer.setStrict(false);
-        tokenizer.setNames("restaurantId", "category", "name", "description", "price");
+
+        // CLAVE: el CSV tiene campos con comillas
+        tokenizer.setQuoteCharacter('"');
+
+        // Ajusta los nombres EXACTOS a tu CSV (ejemplo típico)
+        tokenizer.setNames(
+                "restaurantId",   // int
+                "category",       // string
+                "itemName",       // string
+                "description",    // string (puede traer saltos de línea / comas)
+                "price"           // string o decimal (según tu modelo)
+        );
 
         BeanWrapperFieldSetMapper<MenuCsvRow> mapper = new BeanWrapperFieldSetMapper<>();
         mapper.setTargetType(MenuCsvRow.class);
 
-        DefaultLineMapper<MenuCsvRow> lineMapper = new DefaultLineMapper<>();
-        lineMapper.setLineTokenizer(tokenizer);
-        lineMapper.setFieldSetMapper(mapper);
-
-        reader.setLineMapper(lineMapper);
-        return reader;
+        return new FlatFileItemReaderBuilder<MenuCsvRow>()
+                .name("menusCsvReader")                 // estable para restart
+                .resource(new FileSystemResource(path))
+                .linesToSkip(1)                         // header
+                .strict(true)
+                .saveState(true)
+                // CLAVE: recomponer líneas cuando un campo entrecomillado tiene \n
+                .recordSeparatorPolicy(new QuotedMultilineRecordSeparatorPolicy())
+                .lineTokenizer(tokenizer)
+                .fieldSetMapper(mapper)
+                .build();
     }
 
     private static String normalizeDir(String baseDir) {
