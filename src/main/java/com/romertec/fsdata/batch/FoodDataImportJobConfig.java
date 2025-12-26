@@ -2,6 +2,7 @@ package com.romertec.fsdata.batch;
 
 import com.romertec.fsdata.entity.Menu;
 import com.romertec.fsdata.entity.Restaurant;
+import com.romertec.fsdata.policy.QuoteBalancedRecordSeparatorPolicy;
 import com.romertec.fsdata.support.CsvUtils;
 import com.romertec.fsdata.support.MenuCsvRow;
 import com.romertec.fsdata.support.PriceParser;
@@ -100,13 +101,22 @@ public class FoodDataImportJobConfig {
         reader.setSaveState(true);
         reader.setStrict(true);
 
+        // CLAVE: soportar records multi-línea cuando hay \n dentro de campos "quoted"
+        reader.setRecordSeparatorPolicy(new QuoteBalancedRecordSeparatorPolicy('"'));
+
         DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
         tokenizer.setDelimiter(",");
+        tokenizer.setQuoteCharacter('"');            // CLAVE: CSV con comillas
         tokenizer.setStrict(false);
+
+        // Si tu CSV trae EXACTAMENTE estas 11 columnas, esto está perfecto.
         tokenizer.setNames(
                 "id", "position", "name", "score", "ratings", "category",
                 "priceRange", "fullAddress", "zipCode", "lat", "lng"
         );
+
+        // OPCIONAL (recomendado): si el CSV a veces trae columnas extra, fija el mapping a las 11 esperadas
+        tokenizer.setIncludedFields(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
 
         BeanWrapperFieldSetMapper<RestaurantCsvRow> mapper = new BeanWrapperFieldSetMapper<>();
         mapper.setTargetType(RestaurantCsvRow.class);
@@ -118,6 +128,7 @@ public class FoodDataImportJobConfig {
         reader.setLineMapper(lineMapper);
         return reader;
     }
+
 
     @Bean
     @StepScope
